@@ -1,55 +1,93 @@
-# Microservicio Estadísticas - DevOps (Evaluación Parcial N°2)
+ 
 
-Este repositorio contiene la arquitectura de integración y entrega continua (CI/CD) para el microservicio **estadisticasms**, desarrollado en **Java 21 con Spring Boot 3.2.5** y gestionado con **Apache Maven**.
+Evaluación Parcial N°3 (EP3) — DevOps: Observabilidad, Orquestación y Gobernanza CI/CD
 
----
+Asignatura: DevOps (DOY0101)
 
-## 👥 Datos del Estudiante
-- **Estudiante:** Kevis Howard González
-- **Asignatura:** Ingeniería DevOps (DOY0101)
-- **Institución:** Duoc UC
+Microservicio: Estadísticas (EstadisticasMs-E3)
 
----
+Repositorio: kevishowardgonzalez/EstadisticasMs-E3
 
-## 1. Arquitectura y Contenerización (IE1)
-El microservicio se encuentra empaquetado utilizando un `Dockerfile` multi-stage optimizado y seguro, complementado con `.dockerignore` para excluir archivos innecesarios del contexto de construcción:
-- **Etapa de compilación (Build):** Emplea `maven:3.9.6-eclipse-temurin-21` para compilar y empaquetar el artefacto JAR ejecutable.
-- **Etapa de ejecución (Runtime):** Utiliza `eclipse-temurin:21-jre` configurando un usuario sin privilegios (`appuser` en `appgroup`), eliminando la ejecución como `root` y exponiendo el puerto `8082`.
+Infraestructura Cloud: AWS Academy Learner Lab (us-east-1)
 
----
+1. Descripción General del Proyecto
 
-## 2. Pruebas Automatizadas y Cobertura JaCoCo (IE2)
-- **Framework de Pruebas:** Se implementaron pruebas unitarias con **JUnit 5** y **Mockito**, aislando las capas de Controlador, Servicio, Entidad JPA y DTOs sin requerir una base de datos activa durante la fase de pruebas unitarias.
-- **JaCoCo Plugin y Bloqueo por Cobertura:** Integrado en el `pom.xml` para generar el reporte XML (`target/site/jacoco/jacoco.xml`) y validar el umbral mínimo obligatorio mediante la meta `jacoco:check` durante la fase `verify`.
-- **Configuración de Lombok:** Se configuró `lombok.config` (`lombok.addLombokGeneratedAnnotation = true`) para evitar que JaCoCo penalice métodos generados automáticamente (`equals`, `hashCode`, `toString`).
+Este repositorio contiene la implementación de prácticas de monitoreo, observabilidad, despliegue orquestado en la nube, dashboards de métricas y gobernanza automatizada en el pipeline CI/CD para el microservicio Estadísticas. El objetivo es garantizar la disponibilidad operativa, la trazabilidad de solicitudes y el cumplimiento continuo de estándares de calidad y seguridad antes de cualquier promoción a producción.
 
----
+2. Arquitectura e Implementación por Indicador de Evaluación (Rúbrica EP3)
 
-## 3. Análisis Estático de Calidad y Seguridad (IE3)
-El pipeline incorpora controles reales y bloqueantes de calidad de código y gestión de vulnerabilidades:
-- **SonarCloud (Calidad y Confiabilidad):**
-  * Vinculación directa con el reporte de JaCoCo mediante `sonar.coverage.jacoco.xmlReportPaths`.
-  * **Quality Gate bloqueante:** Ejecutado con `-Dsonar.qualitygate.wait=true`, deteniendo el pipeline si no se cumplen las métricas de confiabilidad, seguridad y cobertura.
-- **Snyk y Dependabot (Seguridad en Dependencias):**
-  * **Snyk CLI:** Valida la existencia de `SNYK_TOKEN` y ejecuta `snyk test --severity-threshold=high` (bloqueante ante vulnerabilidades altas o críticas, sin omitir errores), subiendo el reporte JSON como artefacto.
-  * **Dependabot:** Configurado en `.github/dependabot.yml` para auditar actualizaciones semanales de dependencias Maven y acciones de GitHub Actions.
+IE1 (20%) — Monitoreo y Observabilidad en AWS
 
----
+Se configuró una arquitectura de monitoreo activo sobre infraestructura EC2 en la región us-east-1 (Practica de Monitoreo E3, instancia i-071311a8ad8a6cd4c):
 
-## 4. Pipeline de CI/CD en GitHub Actions (IE4)
-El archivo `.github/workflows/ci.yml` automatiza el ciclo de vida del software ante eventos de `push` y `pull_request` sobre las ramas `develop` y `main` mediante 5 jobs secuenciales (`needs`):
-1. **Pruebas y Cobertura (`test-and-coverage`):** Ejecuta `mvn clean verify` (con `jacoco:check`) y publica el reporte de JaCoCo como artefacto.
-2. **Escaneo de Seguridad (`security-scan`):** Audita las dependencias con Snyk bloqueando severidades altas.
-3. **Análisis SonarCloud (`sonarcloud-analysis`):** Procesa las métricas de código y exige la aprobación del Quality Gate.
-4. **Construcción de Imagen Docker (`docker-build`):** Construye la imagen multi-stage etiquetándola con el SHA del commit (`estadisticas-ms:${{ github.sha }}`) para garantizar trazabilidad.
-5. **Despliegue Simulado (`deploy-simulado`):** Levanta el stack completo con Docker Compose en el runner, verifica el estado saludable de ambos contenedores y ejecuta una prueba *smoke test* real (`curl -f http://localhost:8082/api/estadisticas`).
+Recolección de Métricas y Logs: Integración mediante AWS Systems Manager (LabInstanceProfile) y el Agente de Amazon CloudWatch para capturar métricas de sistema operativo y disponibilidad en tiempo real.
 
----
+Pruebas de Estrés y Detección de Anomalías: Ejecución de pruebas de carga controlada con stress-ng, llevando la utilización de CPU al ~99.99% para validar el comportamiento del sistema bajo alta demanda.
 
-## 5. Orquestación y Despliegue Local con Docker Compose (IE5)
-En el archivo `docker-compose.yml` se orquestan los servicios bajo una red personalizada (`red-estadisticas`), política de reinicio (`restart: unless-stopped`) y variables externalizadas en `.env` (a partir de `.env.example`):
-- **Servicio de Base de Datos (`mariadb`):** MariaDB 11.4 con persistencia en `mariadb_data`, comprobación de salud (`healthcheck`) y montaje de los scripts SQL (`./src/main/resources/db_estadisticas:/docker-entrypoint-initdb.d:ro`) para crear e inicializar la tabla `estadisticas` automáticamente al arrancar.
-- **Microservicio Java (`estadisticas-ms`):** Configurado con `depends_on` (`condition: service_healthy`), su propio `healthcheck` HTTP sobre `/api/estadisticas` y límites de CPU y memoria (`deploy.resources`).
+Alertas Automatizadas: Configuración de la alarma Alerta-CPU-Alta-E3 en CloudWatch vinculada al tópico de Amazon SNS AlarmaMonitoreoE3, enviando notificaciones automáticas por correo electrónico institucional ante umbrales críticos.
+
+IE2 (20%) — Despliegue Orquestado en la Nube (Amazon EKS + Istio + Kiali)
+
+Se aprovisionó un entorno orquestado en Kubernetes administrado en AWS para el despliegue y trazabilidad del microservicio:
+
+Clúster Kubernetes: Creación del clúster EstadisticasEKS (Kubernetes v1.37, rol IAM LabRole) respaldado por el grupo de nodos administrados nodos-estadisticas (2 nodos t3.medium en Amazon Linux 2023).
+
+Service Mesh y Observabilidad: Instalación de Istio (istioctl, perfil demo optimizado) para la gestión de tráfico y recolección de telemetría distribuida, complementado con Prometheus y Kiali para visualizar la topología de servicios, latencias, tasas de error y trazabilidad en tiempo real.
+
+Manifiestos: Los archivos de despliegue de Kubernetes e Istio se encuentran organizados en el directorio /k8s (o /manifests) de este repositorio.
+
+IE3 (10%) — Dashboards Integrados al Proceso CI/CD
+
+Se implementaron paneles visuales de control para supervisar tanto la salud operativa como el rendimiento del ciclo de entrega:
+
+Métricas de Pipeline CI/CD: Visualización de tiempos de ejecución y despliegue, resultados de pruebas automatizadas y cobertura de código en cada ejecución de GitHub Actions.
+
+Métricas de Infraestructura y Aplicación: Paneles en CloudWatch y Kiali/Prometheus con consumo de CPU/memoria, estado de pods y tasa de errores HTTP.
+
+IE4 (10%) — Documentación e Impacto en la Toma de Decisiones Técnicas
+
+La integración de observabilidad y controles automáticos en el flujo DevOps impacta directamente en la ingeniería y operación del sistema:
+
+Prevención Proactiva de Incidentes: Las alertas tempranas de CloudWatch y las métricas de latencia en Kiali permiten detectar cuellos de botella o degradación de rendimiento antes de afectar a los usuarios finales.
+
+Decisiones Basadas en Evidencia: Los datos históricos de consumo de recursos (t3.medium / t3.small) y tiempos de despliegue fundamentan el dimensionamiento adecuado de nodos y réplicas en EKS.
+
+Mejora Continua y Trazabilidad: Cada cambio en el código queda auditado mediante ejecuciones trazables del pipeline, reduciendo el tiempo medio de recuperación (MTTR) y evitando regresiones en producción.
+
+IE5 (20%) — Políticas de Cumplimiento Automatizadas
+
+Se establecieron reglas estrictas de gobernanza sobre el código fuente en GitHub:
+
+Protección de Rama (Branch Protection): La rama principal main cuenta con políticas activas que bloquean commits directos, exigiendo obligatoriamente la apertura de un Pull Request (PR) y la aprobación de los status checks configurados antes de realizar el merge.
+
+Auditoría Automatizada: Ejecución automática de análisis estático de calidad y revisión de vulnerabilidades en cada PR y push.
+
+IE6 (20%) — Interrupción Automática ante Fallas Críticas
+
+El flujo de integración continua en .github/workflows/ actúa como una compuerta de calidad (Quality Gate):
+
+Si alguna etapa crítica —pruebas unitarias, umbrales de cobertura, análisis de seguridad o construcción de imagen— detecta una falla o vulnerabilidad crítica, el pipeline interrumpe automáticamente su ejecución y bloquea la integración hacia main, protegiendo la estabilidad y seguridad del entorno productivo.
+
+3. Estructura del Repositorio
+
+├── .github/
+│   └── workflows/          # Pipelines CI/CD y validaciones automatizadas (IE3, IE5, IE6)
+├── k8s/                    # Manifiestos de despliegue Kubernetes e Istio (IE2)
+├── evidencias/             # Capturas de respaldo de AWS (CloudWatch, SNS, EKS, Istio/Kiali)
+├── src/                    # Código fuente del microservicio Estadísticas
+└── README.md               # Documentación técnica, declaración de IA y reflexiones
+
+
+4. Declaración de Uso de Inteligencia Artificial
+
+ 
+
+Propósito y Alcance: La IA fue utilizada exclusivamente como guía de apoyo técnico en AWS (orientación paso a paso para la configuración de servicios en AWS Academy Learner Lab, comandos de aws-cli, kubectl e istioctl, y diagnóstico de estados de aprovisionamiento) y como apoyo en la estructuración y redacción técnica de este documento README.md.
+
+Validación: La utilizacion de comandos
+
+5. Reflexiones Individuales (Redactadas sin apoyo de IA)
+ "Durante esta evaluación aprendí a integrar el monitoreo, las alertas y el control del pipeline para cuidar la calidad y estabilidad del microservicio. Trabajar con AWS y GitHub me ayudó a ver cómo las reglas de protección y los bloqueos automáticos evitan errores antes de avanzar, y cómo la observabilidad permite reaccionar a tiempo cuando sube el uso de recursos. En el proyecto me encargué de configurar y validar las pruebas, el flujo de trabajo y los entornos, y me queda claro que documentar bien y revisar cada paso es clave para que todo funcione de forma ordenada."
 
 ### Pasos para levantar el stack localmente
 1. **Copiar variables de entorno:**
