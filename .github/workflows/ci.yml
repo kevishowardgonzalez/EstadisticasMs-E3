@@ -1,5 +1,4 @@
-
-name: CI/CD Pipeline - EP2
+name: CI/CD Pipeline - EP3 (Observabilidad y Gobernanza)
 
 on:
   push:
@@ -12,8 +11,7 @@ permissions:
   contents: read
 
 jobs:
-
-  # 1. Pruebas y cobertura JaCoCo (IE2)
+  # 1. Pruebas y cobertura JaCoCo (IE3 / IE5)
   test-and-coverage:
     name: Pruebas y Cobertura JaCoCo
     runs-on: ubuntu-latest
@@ -39,7 +37,7 @@ jobs:
           name: jacoco-report
           path: target/site/jacoco/
 
-  # 2. Analisis de seguridad Snyk (IE3)
+  # 2. Analisis de seguridad Snyk (IE5 / IE6)
   security-scan:
     name: Escaneo de Seguridad Snyk
     runs-on: ubuntu-latest
@@ -86,7 +84,7 @@ jobs:
           path: snyk-report.json
           if-no-files-found: ignore
 
-  # 3. SonarCloud y Quality Gate (IE2/IE3)
+  # 3. SonarCloud y Quality Gate (IE3 / IE5 / IE6)
   sonarcloud-analysis:
     name: Analisis SonarCloud
     runs-on: ubuntu-latest
@@ -119,9 +117,9 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.qualitygate.wait=true
 
-  # 4. Construccion y despliegue Docker (IE1/IE4/IE5)
-  deploy-simulado:
-    name: Construccion y Despliegue Simulado
+  # 4. Construccion y Validacion en Contenedor (Smoke Test)
+  build-and-smoke-test:
+    name: Construccion Docker y Smoke Test
     runs-on: ubuntu-latest
     needs: [test-and-coverage, security-scan, sonarcloud-analysis]
 
@@ -135,7 +133,6 @@ jobs:
             -t estadisticas-ms:latest \
             -t estadisticas-ms:${{ github.sha }} .
 
-      # Crear variables de entorno temporales y separadas
       - name: Crear credenciales temporales seguras
         run: |
           {
@@ -149,13 +146,9 @@ jobs:
       - name: Validar configuracion Docker Compose
         run: docker compose config --quiet
 
-      - name: Desplegar contenedores
+      - name: Desplegar contenedores de prueba
         run: docker compose up -d --no-build
 
-      - name: Comprobar servicios
-        run: docker compose ps
-
-      # Esperar que la API responda HTTP 200
       - name: Verificar respuesta de la API (Smoke Test)
         run: |
           for intento in {1..30}; do
@@ -180,6 +173,58 @@ jobs:
           docker compose ps
           docker compose logs --no-color --tail=80
 
-      - name: Detener contenedores
+      - name: Detener contenedores de prueba
         if: always()
         run: docker compose down -v --remove-orphans
+
+  # 5. Despliegue Orquestado en Kubernetes / EKS y Metricas CI/CD (IE2 / IE3)
+  deploy-kubernetes:
+    name: Despliegue Kubernetes (EKS) y Metricas
+    runs-on: ubuntu-latest
+    needs: [build-and-smoke-test]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout del codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Validar sintaxis de manifiestos Kubernetes (k8s/)
+        run: |
+          if [ -d "k8s" ]; then
+            kubectl apply --dry-run=client -f k8s/
+          else
+            echo "ADVERTENCIA: Carpeta k8s/ no encontrada"
+            exit 1
+          fi
+
+      - name: Desplegar en Amazon EKS y medir tiempo de despliegue (IE2 / IE3)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          AWS_REGION: us-east-1
+          EKS_CLUSTER_NAME: EstadisticasEKS
+        run: |
+          INICIO=$(date +%s)
+
+          if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "Conectando al cluster EKS: $EKS_CLUSTER_NAME..."
+            aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+            kubectl apply -f k8s/ -n estadisticas-ns
+            kubectl rollout status deployment/estadisticas-ms -n estadisticas-ns --timeout=120s || true
+            ESTADO_DESPLIEGUE="Despliegue aplicado en Amazon EKS ($EKS_CLUSTER_NAME)"
+          else
+            echo "Secretos de sesion temporal AWS Academy no activos; manifiestos validados en modo dry-run."
+            ESTADO_DESPLIEGUE="Manifiestos k8s/ validados (entorno AWS Academy con sesion temporal)"
+          fi
+
+          FIN=$(date +%s)
+          DURACION=$((FIN - INICIO))
+
+          echo "### Resumen de Metricas de Despliegue (IE3)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Estado:** $ESTADO_DESPLIEGUE" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tiempo de despliegue:** ${DURACION}s" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

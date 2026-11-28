@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: estadisticas-ms
+  namespace: estadisticas-ns
+  labels:
+    app: estadisticas-ms
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: estadisticas-ms
+  template:
+    metadata:
+      labels:
+        app: estadisticas-ms
+        version: v1
+    spec:
+      containers:
+        - name: estadisticas-ms
+          image: estadisticas-ms:latest
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SERVER_PORT
+              value: "8082"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
